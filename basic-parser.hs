@@ -240,14 +240,31 @@ parseStatement = parsePrintStatement <|> parseLetStatement <|> parseIfStatement
             return $ IfStatement left relop right statement
 
 evalStatement :: Statement -> Environment -> Console -> (Environment, Console)
--- Print to the console
+
 evalStatement (PrintStatement expression) env console = (
     env,
+    -- Print to the console
     (show $ evalExpression expression env) : console)
--- Append a frame to the environment
+
 evalStatement (LetStatement (Var v) expression) env console = (
+    -- Append a frame to the environment
     setEnvironment env v $ evalExpression expression env,
     console)
+
+evalStatement (IfStatement left relop right statement) env console =
+    if comparison then evalStatement statement env console
+                  else (env, console)
+    where
+        leftResult = evalExpression left env
+        rightResult = evalExpression right env
+
+        comparison = case relop of
+            "<"  -> leftResult < rightResult
+            ">"  -> leftResult > rightResult
+            "="  -> leftResult == rightResult
+            "<=" -> leftResult <= rightResult
+            ">=" -> leftResult >= rightResult
+            "<>" -> leftResult /= rightResult
 
 
 -- LINES
