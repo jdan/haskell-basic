@@ -191,10 +191,11 @@ evalExpression (UnaryMinusExpression term) env = (-) 0 $ evalTerm term env
 -- STATEMENTS
 data Statement = PrintStatement Expression
                | LetStatement Var Expression
+               | IfStatement Expression String Expression Statement
                deriving (Show)
 
 parseStatement :: Parser Statement
-parseStatement = parsePrintStatement <|> parseLetStatement
+parseStatement = parsePrintStatement <|> parseLetStatement <|> parseIfStatement
     where
         parsePrintStatement :: Parser Statement
         parsePrintStatement = do
@@ -213,6 +214,30 @@ parseStatement = parsePrintStatement <|> parseLetStatement
             spaces
             expression <- parseExpression
             return $ LetStatement var expression
+
+        parseRelOp :: Parser String
+        parseRelOp =
+            (try $ string "<=") <|>
+            (try $ string ">=") <|>
+            (try $ string "<>") <|>
+            string "<"  <|>
+            string ">"  <|>
+            string "="
+
+        parseIfStatement :: Parser Statement
+        parseIfStatement = do
+            string "IF"
+            spaces
+            left <- parseExpression
+            spaces
+            relop <- parseRelOp
+            spaces
+            right <- parseExpression
+            spaces
+            string "THEN"
+            spaces
+            statement <- parseStatement
+            return $ IfStatement left relop right statement
 
 evalStatement :: Statement -> Environment -> Console -> (Environment, Console)
 -- Print to the console
