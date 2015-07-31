@@ -1,75 +1,34 @@
 import Control.Monad
 import Text.ParserCombinators.Parsec
 
--- LINES
--- line ::= number statement CR | statement CR
-data BasicLine = NumberedLine BasicNumber Statement
-               | UnnumberedLine Statement
-               deriving (Show)
+-- NUMBERS
+data BasicNumber = Number Integer deriving (Show)
 
-parseLine :: Parser BasicLine
-parseLine = parseNumberedLine <|> parseUnnumberedLine
-    where
-        parseNumberedLine :: Parser BasicLine
-        parseNumberedLine = do
-            number <- parseNumber
-            spaces
-            statement <- parseStatement
-            return $ NumberedLine number statement
+parseNumber :: Parser BasicNumber
+parseNumber = Number . read <$> many1 digit
 
-        parseUnnumberedLine :: Parser BasicLine
-        parseUnnumberedLine = UnnumberedLine <$> parseStatement
+evalNumber :: BasicNumber -> Integer
+evalNumber (Number num) = num
 
--- EXPRESSIONS
--- expression ::= (+|-|ε) term ((+|-) term)*
-data Expression = BareExpression Term
-                | PlusExpression Term Term
-                | MinusExpression Term Term
-                | UnaryPlusExpression Term
-                | UnaryMinusExpression Term
-                deriving (Show)
+-- STRINGS
+data BasicString = String String deriving (Show)
 
-parseExpression :: Parser Expression
-parseExpression =
-    try parsePlusExpression <|>
-    try parseMinusExpression <|>
-    try parseUnaryPlusExpression <|>
-    try parseUnaryMinusExpression <|>
-    parseBareExpression
+parseString :: Parser BasicString
+parseString = do
+    char '"'
+    x <- many (noneOf "\"")
+    char '"'
+    return $ String x
 
-    where
-        parseBareExpression :: Parser Expression
-        parseBareExpression = do
-            term <- parseTerm
-            return $ BareExpression term
+evalString :: BasicString -> String
+evalString (String str) = str
 
-        parseBinaryExpression :: Char -> (Term -> Term -> Expression) -> Parser Expression
-        parseBinaryExpression op typeclass = do
-            left <- parseTerm
-            spaces
-            char op
-            spaces
-            right <- parseTerm
-            return $ typeclass left right
+-- VARS
+-- var ::= A | B | C ... | Y | Z
+data Var = Var Char deriving (Show)
 
-        parsePlusExpression :: Parser Expression
-        parsePlusExpression = parseBinaryExpression '+' PlusExpression
-
-        parseMinusExpression :: Parser Expression
-        parseMinusExpression = parseBinaryExpression '-' MinusExpression
-
-        parseUnaryExpression :: Char -> (Term -> Expression) -> Parser Expression
-        parseUnaryExpression op typeclass = do
-            char op
-            spaces
-            term <- parseTerm
-            return $ typeclass term
-
-        parseUnaryPlusExpression :: Parser Expression
-        parseUnaryPlusExpression = parseUnaryExpression '+' UnaryPlusExpression
-
-        parseUnaryMinusExpression :: Parser Expression
-        parseUnaryMinusExpression = parseUnaryExpression '-' UnaryMinusExpression
+parseVar :: Parser Var
+parseVar = Var <$> upper
 
 -- FACTORS
 -- factor ::= var | number | (expression)
@@ -122,6 +81,57 @@ parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
         parseMultiplyTerm = parseBinaryTerm '*' MultiplyTerm
         parseDivideTerm = parseBinaryTerm '/' DivideTerm
 
+-- EXPRESSIONS
+-- expression ::= (+|-|ε) term ((+|-) term)*
+data Expression = BareExpression Term
+                | PlusExpression Term Term
+                | MinusExpression Term Term
+                | UnaryPlusExpression Term
+                | UnaryMinusExpression Term
+                deriving (Show)
+
+parseExpression :: Parser Expression
+parseExpression =
+    try parsePlusExpression <|>
+    try parseMinusExpression <|>
+    try parseUnaryPlusExpression <|>
+    try parseUnaryMinusExpression <|>
+    parseBareExpression
+
+    where
+        parseBareExpression :: Parser Expression
+        parseBareExpression = do
+            term <- parseTerm
+            return $ BareExpression term
+
+        parseBinaryExpression :: Char -> (Term -> Term -> Expression) -> Parser Expression
+        parseBinaryExpression op typeclass = do
+            left <- parseTerm
+            spaces
+            char op
+            spaces
+            right <- parseTerm
+            return $ typeclass left right
+
+        parsePlusExpression :: Parser Expression
+        parsePlusExpression = parseBinaryExpression '+' PlusExpression
+
+        parseMinusExpression :: Parser Expression
+        parseMinusExpression = parseBinaryExpression '-' MinusExpression
+
+        parseUnaryExpression :: Char -> (Term -> Expression) -> Parser Expression
+        parseUnaryExpression op typeclass = do
+            char op
+            spaces
+            term <- parseTerm
+            return $ typeclass term
+
+        parseUnaryPlusExpression :: Parser Expression
+        parseUnaryPlusExpression = parseUnaryExpression '+' UnaryPlusExpression
+
+        parseUnaryMinusExpression :: Parser Expression
+        parseUnaryMinusExpression = parseUnaryExpression '-' UnaryMinusExpression
+
 -- STATEMENTS
 data Statement = PrintStatement Expression
                | LetStatement Var Expression
@@ -148,25 +158,21 @@ parseStatement = parsePrintStatement <|> parseLetStatement
             expression <- parseExpression
             return $ LetStatement var expression
 
--- NUMBERS
-data BasicNumber = Number Integer deriving (Show)
+-- LINES
+-- line ::= number statement CR | statement CR
+data BasicLine = NumberedLine BasicNumber Statement
+               | UnnumberedLine Statement
+               deriving (Show)
 
-parseNumber :: Parser BasicNumber
-parseNumber = Number . read <$> many1 digit
+parseLine :: Parser BasicLine
+parseLine = parseNumberedLine <|> parseUnnumberedLine
+    where
+        parseNumberedLine :: Parser BasicLine
+        parseNumberedLine = do
+            number <- parseNumber
+            spaces
+            statement <- parseStatement
+            return $ NumberedLine number statement
 
--- STRINGS
-data BasicString = String String deriving (Show)
-
-parseString :: Parser BasicString
-parseString = do
-    char '"'
-    x <- many (noneOf "\"")
-    char '"'
-    return $ String x
-
--- VARS
--- var ::= A | B | C ... | Y | Z
-data Var = Var Char deriving (Show)
-
-parseVar :: Parser Var
-parseVar = Var <$> upper
+        parseUnnumberedLine :: Parser BasicLine
+        parseUnnumberedLine = UnnumberedLine <$> parseStatement
