@@ -1,38 +1,12 @@
 import Control.Monad
 import Text.ParserCombinators.Parsec
 
-data Var = Var Char deriving (Show)
-
-data BasicNumber = Number Integer deriving (Show)
-data BasicString = String String deriving (Show)
-
-data Expression = BareExpression Term
-                | PlusExpression Term Term
-                | MinusExpression Term Term
-                | UnaryPlusExpression Term
-                | UnaryMinusExpression Term
-                deriving (Show)
-
-data Term = BareTerm Factor
-          | MultiplyTerm Factor Factor
-          | DivideTerm Factor Factor
-          deriving (Show)
-
-data Factor = VarFactor Var
-            | BasicNumberFactor BasicNumber
-            | ExpressionFactor Expression
-            deriving (Show)
-
-data Statement = PrintStatement Expression
-               | LetStatement Var Expression
-               deriving (Show)
-
+-- LINES
+-- line ::= number statement CR | statement CR
 data BasicLine = NumberedLine BasicNumber Statement
                | UnnumberedLine Statement
                deriving (Show)
 
--- LINES
--- line ::= number statement CR | statement CR
 parseLine :: Parser BasicLine
 parseLine = parseNumberedLine <|> parseUnnumberedLine
     where
@@ -48,6 +22,13 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine
 
 -- EXPRESSIONS
 -- expression ::= (+|-|ε) term ((+|-) term)*
+data Expression = BareExpression Term
+                | PlusExpression Term Term
+                | MinusExpression Term Term
+                | UnaryPlusExpression Term
+                | UnaryMinusExpression Term
+                deriving (Show)
+
 parseExpression :: Parser Expression
 parseExpression =
     try parsePlusExpression <|>
@@ -92,6 +73,11 @@ parseExpression =
 
 -- FACTORS
 -- factor ::= var | number | (expression)
+data Factor = VarFactor Var
+            | BasicNumberFactor BasicNumber
+            | ExpressionFactor Expression
+            deriving (Show)
+
 parseFactor :: Parser Factor
 parseFactor =
     parseVarFactor <|> parseBasicNumberFactor <|> parseExpressionFactor
@@ -113,6 +99,11 @@ parseFactor =
 
 -- TERMS
 -- term ::= factor ((*|/) factor)*
+data Term = BareTerm Factor
+          | MultiplyTerm Factor Factor
+          | DivideTerm Factor Factor
+          deriving (Show)
+
 parseTerm :: Parser Term
 parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
     where
@@ -132,6 +123,10 @@ parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
         parseDivideTerm = parseBinaryTerm '/' DivideTerm
 
 -- STATEMENTS
+data Statement = PrintStatement Expression
+               | LetStatement Var Expression
+               deriving (Show)
+
 parseStatement :: Parser Statement
 parseStatement = parsePrintStatement <|> parseLetStatement
     where
@@ -154,10 +149,14 @@ parseStatement = parsePrintStatement <|> parseLetStatement
             return $ LetStatement var expression
 
 -- NUMBERS
+data BasicNumber = Number Integer deriving (Show)
+
 parseNumber :: Parser BasicNumber
-parseNumber = liftM (Number . read) $ many1 digit
+parseNumber = Number . read <$> many1 digit
 
 -- STRINGS
+data BasicString = String String deriving (Show)
+
 parseString :: Parser BasicString
 parseString = do
     char '"'
@@ -167,5 +166,7 @@ parseString = do
 
 -- VARS
 -- var ::= A | B | C ... | Y | Z
+data Var = Var Char deriving (Show)
+
 parseVar :: Parser Var
 parseVar = Var <$> upper
