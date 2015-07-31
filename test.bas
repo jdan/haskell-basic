@@ -1,0 +1,3 @@
+10 LET A = 3
+20 LET B = (A*5) + 2
+30 PRINT B

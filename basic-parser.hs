@@ -249,3 +249,25 @@ evalLine (NumberedLine _ statement) env console =
     evalStatement statement env console
 evalLine (UnnumberedLine statement) env console =
     evalStatement statement env console
+
+
+-- Run an entire program
+parseAndEvalProgram :: [String] -> Either ParseError (Environment, Console)
+parseAndEvalProgram program = helper program [] []
+    where
+        helper :: [String] -> Environment -> Console -> Either ParseError (Environment, Console)
+        helper [] env console = Right (env, console)
+        helper (line:rest) env console = case (parseAndEvalLine line env console) of
+            Right (newEnv, newConsole) -> helper rest newEnv newConsole
+            Left err -> Left err
+
+parseAndEvalLine :: String -> Environment -> Console -> Either ParseError (Environment, Console)
+parseAndEvalLine str env console = case (parse parseLine "" str) of
+    Right line -> Right $ evalLine line env console
+    Left err -> Left err
+
+main = do
+    input <- getContents
+    case ((parseAndEvalProgram . lines) input) of
+        Right (env, console) -> (putStrLn . unlines) console
+        Left err -> print err
