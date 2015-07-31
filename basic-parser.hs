@@ -30,6 +30,8 @@ data Factor = VarFactor Var
 
 data Statement = PrintStatement Expression deriving (Show)
 
+-- EXPRESSIONS
+-- expression ::= (+|-|ε) term ((+|-) term)*
 parseBareExpression :: Parser Expression
 parseBareExpression = do
     term <- parseTerm
@@ -65,9 +67,12 @@ parseExpression =
     try parseUnaryMinusExpression <|>
     parseBareExpression
 
+-- FACTORS
+-- factor ::= var | number | (expression)
 parseVarFactor = VarFactor <$> parseVar
 parseBasicNumberFactor = BasicNumberFactor <$> parseNumber
 
+-- Parse an expression factor, or an expression surrounded by parentheses
 parseExpressionFactor = do
     char '('
     expression <- parseExpression
@@ -77,6 +82,8 @@ parseExpressionFactor = do
 parseFactor :: Parser Factor
 parseFactor = parseVarFactor <|> parseBasicNumberFactor <|> parseExpressionFactor
 
+-- TERMS
+-- term ::= factor ((*|/) factor)*
 parseBareTerm :: Parser Term
 parseBareTerm = BareTerm <$> parseFactor
 
@@ -95,9 +102,11 @@ parseDivideTerm = parseBinaryTerm '/' DivideTerm
 parseTerm :: Parser Term
 parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
 
+-- NUMBERS
 parseNumber :: Parser BasicNumber
 parseNumber = liftM (Number . read) $ many1 digit
 
+-- STRINGS
 parseString :: Parser BasicString
 parseString = do
     char '"'
@@ -105,4 +114,6 @@ parseString = do
     char '"'
     return $ String x
 
+-- VARS
+-- var ::= A | B | C ... | Y | Z
 parseVar = Var <$> upper
