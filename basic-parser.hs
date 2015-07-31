@@ -1,14 +1,33 @@
 import Control.Monad
 import Text.ParserCombinators.Parsec
 
+
+-- ENVIRONMENT
+type Environment = [(Char, Integer)]
+
+setEnvironment :: Environment -> Char -> Integer -> Environment
+setEnvironment env key value = [(key, value)] ++ env
+
+getEnvironment :: Environment -> Char -> Integer
+getEnvironment env key = case (lookup key env) of
+    Just value -> value
+    -- Variables have a default value of 0
+    Nothing -> 0
+
+
+-- CONSOLE
+type Console = [String]
+
+
 -- NUMBERS
 data BasicNumber = Number Integer deriving (Show)
 
 parseNumber :: Parser BasicNumber
 parseNumber = Number . read <$> many1 digit
 
-evalNumber :: BasicNumber -> Integer
-evalNumber (Number num) = num
+evalNumber :: BasicNumber -> Environment -> Integer
+evalNumber (Number num) _ = num
+
 
 -- STRINGS
 data BasicString = String String deriving (Show)
@@ -20,8 +39,9 @@ parseString = do
     char '"'
     return $ String x
 
-evalString :: BasicString -> String
-evalString (String str) = str
+evalString :: BasicString -> Environment -> String
+evalString (String str) _ = str
+
 
 -- VARS
 -- var ::= A | B | C ... | Y | Z
@@ -29,6 +49,10 @@ data Var = Var Char deriving (Show)
 
 parseVar :: Parser Var
 parseVar = Var <$> upper
+
+evalVar :: Var -> Environment -> Integer
+evalVar (Var v) env = getEnvironment env v
+
 
 -- FACTORS
 -- factor ::= var | number | (expression)
@@ -56,6 +80,12 @@ parseFactor =
             char ')'
             return $ ExpressionFactor expression
 
+evalFactor :: Factor -> Environment -> Integer
+evalFactor (VarFactor v) env = evalVar v env
+evalFactor (BasicNumberFactor num) env = evalNumber num env
+evalFactor (ExpressionFactor exp) env = evalExpression exp env
+
+
 -- TERMS
 -- term ::= factor ((*|/) factor)*
 data Term = BareTerm Factor
@@ -80,6 +110,18 @@ parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
 
         parseMultiplyTerm = parseBinaryTerm '*' MultiplyTerm
         parseDivideTerm = parseBinaryTerm '/' DivideTerm
+
+evalTerm :: Term -> Environment -> Integer
+evalTerm (BareTerm factor) env = evalFactor factor env
+evalTerm (MultiplyTerm left right) env = leftResult * rightResult
+    where
+        leftResult = evalFactor left env
+        rightResult = evalFactor right env
+evalTerm (DivideTerm left right) env = leftResult `div` rightResult
+    where
+        leftResult = evalFactor left env
+        rightResult = evalFactor right env
+
 
 -- EXPRESSIONS
 -- expression ::= (+|-|ε) term ((+|-) term)*
@@ -132,6 +174,20 @@ parseExpression =
         parseUnaryMinusExpression :: Parser Expression
         parseUnaryMinusExpression = parseUnaryExpression '-' UnaryMinusExpression
 
+evalExpression :: Expression -> Environment -> Integer
+evalExpression (BareExpression term) env = evalTerm term env
+evalExpression (PlusExpression left right) env = leftResult + rightResult
+    where
+        leftResult = evalTerm left env
+        rightResult = evalTerm right env
+evalExpression (MinusExpression left right) env = leftResult - rightResult
+    where
+        leftResult = evalTerm left env
+        rightResult = evalTerm right env
+evalExpression (UnaryPlusExpression term) env = evalTerm term env
+evalExpression (UnaryMinusExpression term) env = (-) 0 $ evalTerm term env
+
+
 -- STATEMENTS
 data Statement = PrintStatement Expression
                | LetStatement Var Expression
@@ -158,6 +214,17 @@ parseStatement = parsePrintStatement <|> parseLetStatement
             expression <- parseExpression
             return $ LetStatement var expression
 
+evalStatement :: Statement -> Environment -> Console -> (Environment, Console)
+-- Print to the console
+evalStatement (PrintStatement expression) env console = (
+    env,
+    (show $ evalExpression expression env) : console)
+-- Append a frame to the environment
+evalStatement (LetStatement (Var v) expression) env console = (
+    setEnvironment env v $ evalExpression expression env,
+    console)
+
+
 -- LINES
 -- line ::= number statement CR | statement CR
 data BasicLine = NumberedLine BasicNumber Statement
@@ -176,3 +243,9 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine
 
         parseUnnumberedLine :: Parser BasicLine
         parseUnnumberedLine = UnnumberedLine <$> parseStatement
+
+evalLine :: BasicLine -> Environment -> Console -> (Environment, Console)
+evalLine (NumberedLine _ statement) env console =
+    evalStatement statement env console
+evalLine (UnnumberedLine statement) env console =
+    evalStatement statement env console
