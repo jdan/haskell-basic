@@ -1,11 +1,6 @@
 import Control.Monad
 import Text.ParserCombinators.Parsec
 
-{-
-data Line = NumberedLine BasicNumber Statement | Statement
-type Program = [Line]
--}
-
 data Var = Var Char deriving (Show)
 
 data BasicNumber = Number Integer deriving (Show)
@@ -31,6 +26,23 @@ data Factor = VarFactor Var
 data Statement = PrintStatement Expression
                | LetStatement Var Expression
                deriving (Show)
+
+data BasicLine = NumberedLine BasicNumber Statement
+               | UnnumberedLine Statement
+               deriving (Show)
+
+parseNumberedLine :: Parser BasicLine
+parseNumberedLine = do
+    number <- parseNumber
+    spaces
+    statement <- parseStatement
+    return $ NumberedLine number statement
+
+parseUnnumberedLine :: Parser BasicLine
+parseUnnumberedLine = UnnumberedLine <$> parseStatement
+
+parseLine :: Parser BasicLine
+parseLine = parseNumberedLine <|> parseUnnumberedLine
 
 -- EXPRESSIONS
 -- expression ::= (+|-|ε) term ((+|-) term)*
