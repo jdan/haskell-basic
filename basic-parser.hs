@@ -15,10 +15,6 @@ getEnvironment env key = case (lookup key env) of
     Nothing -> 0
 
 
--- CONSOLE
-type Console = [String]
-
-
 -- NUMBERS
 data BasicNumber = Number Integer deriving (Show)
 
@@ -239,21 +235,19 @@ parseStatement = parsePrintStatement <|> parseLetStatement <|> parseIfStatement
             statement <- parseStatement
             return $ IfStatement left relop right statement
 
-evalStatement :: Statement -> Environment -> Console -> (Environment, Console)
+evalStatement :: Statement -> Environment -> (Environment, Maybe String)
 
-evalStatement (PrintStatement expression) env console = (
-    env,
-    -- Print to the console
-    (show $ evalExpression expression env) : console)
-
-evalStatement (LetStatement (Var v) expression) env console = (
+evalStatement (PrintStatement expression) env =
+    -- No change to the environment, but send through a string that we will
+    -- print out
+    (env, (Just . show) $ evalExpression expression env)
+evalStatement (LetStatement (Var v) expression) env =
     -- Append a frame to the environment
-    setEnvironment env v $ evalExpression expression env,
-    console)
+    (setEnvironment env v $ evalExpression expression env, Nothing)
 
-evalStatement (IfStatement left relop right statement) env console =
-    if comparison then evalStatement statement env console
-                  else (env, console)
+evalStatement (IfStatement left relop right statement) env =
+    if comparison then evalStatement statement env
+                  else (env, Nothing)
     where
         leftResult = evalExpression left env
         rightResult = evalExpression right env
@@ -286,30 +280,36 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine
         parseUnnumberedLine :: Parser BasicLine
         parseUnnumberedLine = UnnumberedLine <$> parseStatement
 
-evalLine :: BasicLine -> Environment -> Console -> (Environment, Console)
-evalLine (NumberedLine _ statement) env console =
-    evalStatement statement env console
-evalLine (UnnumberedLine statement) env console =
-    evalStatement statement env console
+evalLine :: BasicLine -> Environment -> (Environment, Maybe String)
+evalLine (NumberedLine _ statement) env = evalStatement statement env
+evalLine (UnnumberedLine statement) env = evalStatement statement env
 
 
 -- Run an entire program
-parseAndEvalProgram :: [String] -> Either ParseError (Environment, Console)
-parseAndEvalProgram program = helper program [] []
+parseAndEvalProgram :: [String] -> IO(Either ParseError Environment)
+parseAndEvalProgram program = helper program []
     where
-        helper :: [String] -> Environment -> Console -> Either ParseError (Environment, Console)
-        helper [] env console = Right (env, console)
-        helper (line:rest) env console = case (parseAndEvalLine line env console) of
-            Right (newEnv, newConsole) -> helper rest newEnv newConsole
-            Left err -> Left err
+        helper :: [String] -> Environment -> IO(Either ParseError Environment)
+        helper [] env = return $ Right env
+        helper (line:rest) env =
+            case (parseAndEvalLine line env) of
+                Right (newEnv, maybeLog) -> case maybeLog of
+                    Just message -> do
+                        putStrLn message
+                        helper rest newEnv
+                    Nothing -> helper rest newEnv
+                Left err -> return $ Left err
 
-parseAndEvalLine :: String -> Environment -> Console -> Either ParseError (Environment, Console)
-parseAndEvalLine str env console = case (parse parseLine "" str) of
-    Right line -> Right $ evalLine line env console
+
+parseAndEvalLine :: String -> Environment -> Either ParseError (Environment, Maybe String)
+parseAndEvalLine str env = case (parse parseLine "" str) of
+    Right line -> Right $ evalLine line env
     Left err -> Left err
+
 
 main = do
     input <- getContents
-    case ((parseAndEvalProgram . lines) input) of
-        Right (env, console) -> (putStrLn . unlines) console
+    result <- (parseAndEvalProgram . lines) input
+    case result of
+        Right env -> putStrLn "DONE"
         Left err -> print err
