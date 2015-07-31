@@ -28,7 +28,9 @@ data Factor = VarFactor Var
             | ExpressionFactor Expression
             deriving (Show)
 
-data Statement = PrintStatement Expression deriving (Show)
+data Statement = PrintStatement Expression
+               | LetStatement Var Expression
+               deriving (Show)
 
 -- EXPRESSIONS
 -- expression ::= (+|-|ε) term ((+|-) term)*
@@ -46,7 +48,10 @@ parseBinaryExpression op typeclass = do
     right <- parseTerm
     return $ typeclass left right
 
+parsePlusExpression :: Parser Expression
 parsePlusExpression = parseBinaryExpression '+' PlusExpression
+
+parseMinusExpression :: Parser Expression
 parseMinusExpression = parseBinaryExpression '-' MinusExpression
 
 parseUnaryExpression :: Char -> (Term -> Expression) -> Parser Expression
@@ -56,7 +61,10 @@ parseUnaryExpression op typeclass = do
     term <- parseTerm
     return $ typeclass term
 
+parseUnaryPlusExpression :: Parser Expression
 parseUnaryPlusExpression = parseUnaryExpression '+' UnaryPlusExpression
+
+parseUnaryMinusExpression :: Parser Expression
 parseUnaryMinusExpression = parseUnaryExpression '-' UnaryMinusExpression
 
 parseExpression :: Parser Expression
@@ -69,10 +77,14 @@ parseExpression =
 
 -- FACTORS
 -- factor ::= var | number | (expression)
+parseVarFactor :: Parser Factor
 parseVarFactor = VarFactor <$> parseVar
+
+parseBasicNumberFactor :: Parser Factor
 parseBasicNumberFactor = BasicNumberFactor <$> parseNumber
 
 -- Parse an expression factor, or an expression surrounded by parentheses
+parseExpressionFactor :: Parser Factor
 parseExpressionFactor = do
     char '('
     expression <- parseExpression
@@ -102,6 +114,28 @@ parseDivideTerm = parseBinaryTerm '/' DivideTerm
 parseTerm :: Parser Term
 parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
 
+-- STATEMENTS
+parsePrintStatement :: Parser Statement
+parsePrintStatement = do
+    string "PRINT"
+    spaces
+    expression <- parseExpression
+    return $ PrintStatement expression
+
+parseLetStatement :: Parser Statement
+parseLetStatement = do
+    string "LET"
+    spaces
+    var <- parseVar
+    spaces
+    char '='
+    spaces
+    expression <- parseExpression
+    return $ LetStatement var expression
+
+parseStatement :: Parser Statement
+parseStatement = parsePrintStatement <|> parseLetStatement
+
 -- NUMBERS
 parseNumber :: Parser BasicNumber
 parseNumber = liftM (Number . read) $ many1 digit
@@ -116,4 +150,5 @@ parseString = do
 
 -- VARS
 -- var ::= A | B | C ... | Y | Z
+parseVar :: Parser Var
 parseVar = Var <$> upper
