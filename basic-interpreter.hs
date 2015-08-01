@@ -11,6 +11,7 @@ import GHCJS.DOM.Document
 import GHCJS.DOM.Element
 import GHCJS.DOM.HTMLElement
 import GHCJS.DOM.HTMLTextAreaElement
+import GHCJS.DOM.Node
 import GHCJS.DOM.Types
 import GHCJS.Types
 
@@ -352,14 +353,22 @@ main = do
         Just output <- fmap castToHTMLElement <$> documentGetElementById doc "output"
         Just run <- fmap castToHTMLElement <$> documentGetElementById doc "run"
 
-        let runCode = do
-            inputCode <- htmlTextAreaElementGetValue code
+        let
+            appendContent message = do
+                Just entry <- fmap castToHTMLElement <$> documentCreateElement doc "li"
+                htmlElementSetInnerHTML entry (toJSString message)
+                nodeAppendChild output (Just entry)
+                return ()
 
-            case (parseProgram (lines $ fromJSString inputCode)) of
-                Left err -> print err
-                Right program -> do
-                    evalProgram program [] 0 putStrLn
-                    return ()
+            runCode = do
+                htmlElementSetInnerHTML output (toJSString "")
+                inputCode <- htmlTextAreaElementGetValue code
+
+                case (parseProgram (lines $ fromJSString inputCode)) of
+                    Left err -> print err
+                    Right program -> do
+                        evalProgram program [] 0 appendContent
+                        return ()
 
         elementOnclick run (liftIO runCode)
         return ()
