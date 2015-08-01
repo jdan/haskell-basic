@@ -2,6 +2,7 @@ module Main where
 
 import Control.Monad.Trans
 import Control.Applicative hiding ((<|>), many)
+import Data.List
 
 import Text.ParserCombinators.Parsec
 
@@ -329,6 +330,7 @@ parseProgram program = helper program []
 
 evalProgram :: [BasicLine] -> Environment -> Int -> (String -> IO()) -> IO(Environment)
 evalProgram program env line printer
+    | line < 0 = return env
     | line >= (length program) = return env
     | otherwise = do
         let (nextEnv, message, nextLine) = evalLine (program !! line) env in
@@ -337,10 +339,19 @@ evalProgram program env line printer
                     Nothing -> return ()
                     Just message -> printer message
                 case nextLine of
-                    Nothing -> evalProgram program nextEnv (line + 1) printer
+                    -- Visit the next line in the program
+                    Nothing -> evalProgram program nextEnv (line+1) printer
+
+                    -- Find the line corresponding to the label
                     Just lineNo -> evalProgram program nextEnv targetLine printer
                         where
-                            targetLine = 0
+                            targetLine = case (findIndex labelMatches program) of
+                                Nothing -> -1
+                                Just index -> index
+
+                            labelMatches line = case line of
+                                UnnumberedLine _ -> False
+                                NumberedLine (Number num) _ -> (num == lineNo)
 
 main = do
     -- Running a GUI creates a WebKitGtk window in native code,
@@ -354,6 +365,7 @@ main = do
         Just run <- fmap castToHTMLElement <$> documentGetElementById doc "run"
 
         let
+            -- Append a message to the output <ul>
             appendContent message = do
                 Just entry <- fmap castToHTMLElement <$> documentCreateElement doc "li"
                 htmlElementSetInnerHTML entry (toJSString message)
@@ -365,7 +377,9 @@ main = do
                 inputCode <- htmlTextAreaElementGetValue code
 
                 case (parseProgram (lines $ fromJSString inputCode)) of
-                    Left err -> print err
+                    Left err -> do
+                        htmlElementSetInnerHTML output (show err)
+                        return ()
                     Right program -> do
                         evalProgram program [] 0 appendContent
                         return ()
