@@ -1,13 +1,18 @@
 module Main where
 
+import Control.Monad.Trans
 import Control.Applicative hiding ((<|>), many)
 
 import Text.ParserCombinators.Parsec
 
+import GHCJS.Foreign
 import GHCJS.DOM
 import GHCJS.DOM.Document
+import GHCJS.DOM.Element
 import GHCJS.DOM.HTMLElement
+import GHCJS.DOM.HTMLTextAreaElement
 import GHCJS.DOM.Types
+import GHCJS.Types
 
 -- ENVIRONMENT
 type Environment = [(Char, Int)]
@@ -323,7 +328,7 @@ parseProgram program = helper program []
 
 evalProgram :: [BasicLine] -> Environment -> Int -> (String -> IO()) -> IO(Environment)
 evalProgram program env line printer
-    | line > (length program) = return env
+    | line >= (length program) = return env
     | otherwise = do
         let (nextEnv, message, nextLine) = evalLine (program !! line) env in
             do
@@ -336,19 +341,25 @@ evalProgram program env line printer
                         where
                             targetLine = 0
 
-
-{-
 main = do
-    input <- getContents
-    case (parseProgram (lines input)) of
-        Left err -> print err
-        Right program -> do
-            evalProgram program [] 1 putStrLn
-            return ()
--}
-
-main = do
+    -- Running a GUI creates a WebKitGtk window in native code,
+    -- but just returns the browser window when compiled to JavaScript
     runWebGUI $ \ webView -> do
         Just doc <- webViewGetDomDocument webView
-        Just output <- fmap castToHTMLDivElement <$> documentGetElementById doc "output"
-        htmlElementSetInnerText output "Hello"
+        Just body <- documentGetBody doc
+
+        Just code <- fmap castToHTMLTextAreaElement <$> documentGetElementById doc "basic"
+        Just output <- fmap castToHTMLElement <$> documentGetElementById doc "output"
+        Just run <- fmap castToHTMLElement <$> documentGetElementById doc "run"
+
+        let runCode = do
+            inputCode <- htmlTextAreaElementGetValue code
+
+            case (parseProgram (lines $ fromJSString inputCode)) of
+                Left err -> print err
+                Right program -> do
+                    evalProgram program [] 0 putStrLn
+                    return ()
+
+        elementOnclick run (liftIO runCode)
+        return ()
