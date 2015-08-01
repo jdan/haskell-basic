@@ -347,11 +347,14 @@ evalProgram program env line printer
     | otherwise = do
         let (nextEnv, message, nextLine) = evalLine (program !! line) env in
             do
+                -- Shall we print something?
                 case message of
                     Nothing -> return ()
                     Just message -> printer message
+
+                -- Does the command want us to jump?
                 case nextLine of
-                    -- Visit the next line in the program
+                    -- If not, visit the next line in the program
                     Nothing -> evalProgram program nextEnv (line+1) printer
 
                     -- Find the line corresponding to the label
