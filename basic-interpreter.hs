@@ -1,14 +1,21 @@
-import Control.Monad
+module Main where
+
+import Control.Applicative hiding ((<|>), many)
+
 import Text.ParserCombinators.Parsec
 
+import GHCJS.DOM
+import GHCJS.DOM.Document
+import GHCJS.DOM.HTMLElement
+import GHCJS.DOM.Types
 
 -- ENVIRONMENT
-type Environment = [(Char, Integer)]
+type Environment = [(Char, Int)]
 
-setEnvironment :: Environment -> Char -> Integer -> Environment
+setEnvironment :: Environment -> Char -> Int -> Environment
 setEnvironment env key value = [(key, value)] ++ env
 
-getEnvironment :: Environment -> Char -> Integer
+getEnvironment :: Environment -> Char -> Int
 getEnvironment env key = case (lookup key env) of
     Just value -> value
     -- Variables have a default value of 0
@@ -16,12 +23,12 @@ getEnvironment env key = case (lookup key env) of
 
 
 -- NUMBERS
-data BasicNumber = Number Integer deriving (Show)
+data BasicNumber = Number Int deriving (Show)
 
 parseNumber :: Parser BasicNumber
 parseNumber = Number . read <$> many1 digit
 
-evalNumber :: BasicNumber -> Environment -> Integer
+evalNumber :: BasicNumber -> Environment -> Int
 evalNumber (Number num) _ = num
 
 
@@ -46,7 +53,7 @@ data Var = Var Char deriving (Show)
 parseVar :: Parser Var
 parseVar = Var <$> upper
 
-evalVar :: Var -> Environment -> Integer
+evalVar :: Var -> Environment -> Int
 evalVar (Var v) env = getEnvironment env v
 
 
@@ -76,7 +83,7 @@ parseFactor =
             char ')'
             return $ ExpressionFactor expression
 
-evalFactor :: Factor -> Environment -> Integer
+evalFactor :: Factor -> Environment -> Int
 evalFactor (VarFactor v) env = evalVar v env
 evalFactor (BasicNumberFactor num) env = evalNumber num env
 evalFactor (ExpressionFactor exp) env = evalExpression exp env
@@ -107,7 +114,7 @@ parseTerm = try parseMultiplyTerm <|> try parseDivideTerm <|> parseBareTerm
         parseMultiplyTerm = parseBinaryTerm '*' MultiplyTerm
         parseDivideTerm = parseBinaryTerm '/' DivideTerm
 
-evalTerm :: Term -> Environment -> Integer
+evalTerm :: Term -> Environment -> Int
 evalTerm (BareTerm factor) env = evalFactor factor env
 evalTerm (MultiplyTerm left right) env = leftResult * rightResult
     where
@@ -170,7 +177,7 @@ parseExpression =
         parseUnaryMinusExpression :: Parser Expression
         parseUnaryMinusExpression = parseUnaryExpression '-' UnaryMinusExpression
 
-evalExpression :: Expression -> Environment -> Integer
+evalExpression :: Expression -> Environment -> Int
 evalExpression (BareExpression term) env = evalTerm term env
 evalExpression (PlusExpression left right) env = leftResult + rightResult
     where
@@ -188,10 +195,15 @@ evalExpression (UnaryMinusExpression term) env = (-) 0 $ evalTerm term env
 data Statement = PrintStatement Expression
                | LetStatement Var Expression
                | IfStatement Expression String Expression Statement
+               | GotoStatement Expression
                deriving (Show)
 
 parseStatement :: Parser Statement
-parseStatement = parsePrintStatement <|> parseLetStatement <|> parseIfStatement
+parseStatement =
+    parsePrintStatement <|>
+    parseLetStatement <|>
+    parseIfStatement <|>
+    parseGotoStatement
     where
         parsePrintStatement :: Parser Statement
         parsePrintStatement = do
@@ -235,19 +247,30 @@ parseStatement = parsePrintStatement <|> parseLetStatement <|> parseIfStatement
             statement <- parseStatement
             return $ IfStatement left relop right statement
 
-evalStatement :: Statement -> Environment -> (Environment, Maybe String)
+        parseGotoStatement :: Parser Statement
+        parseGotoStatement = do
+            string "GOTO"
+            spaces
+            expression <- parseExpression
+            return $ GotoStatement expression
+
+-- Statements return:
+--   a new environment
+--   maybe a string to output to the console
+--   maybe a line to jump to
+evalStatement :: Statement -> Environment -> (Environment, Maybe String, Maybe Int)
 
 evalStatement (PrintStatement expression) env =
     -- No change to the environment, but send through a string that we will
     -- print out
-    (env, (Just . show) $ evalExpression expression env)
+    (env, (Just . show) $ evalExpression expression env, Nothing)
 evalStatement (LetStatement (Var v) expression) env =
     -- Append a frame to the environment
-    (setEnvironment env v $ evalExpression expression env, Nothing)
+    (setEnvironment env v $ evalExpression expression env, Nothing, Nothing)
 
 evalStatement (IfStatement left relop right statement) env =
     if comparison then evalStatement statement env
-                  else (env, Nothing)
+                  else (env, Nothing, Nothing)
     where
         leftResult = evalExpression left env
         rightResult = evalExpression right env
@@ -259,6 +282,9 @@ evalStatement (IfStatement left relop right statement) env =
             "<=" -> leftResult <= rightResult
             ">=" -> leftResult >= rightResult
             "<>" -> leftResult /= rightResult
+
+evalStatement (GotoStatement expression) env =
+    (env, Nothing, Just $ evalExpression expression env)
 
 
 -- LINES
@@ -280,36 +306,49 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine
         parseUnnumberedLine :: Parser BasicLine
         parseUnnumberedLine = UnnumberedLine <$> parseStatement
 
-evalLine :: BasicLine -> Environment -> (Environment, Maybe String)
+evalLine :: BasicLine -> Environment -> (Environment, Maybe String, Maybe Int)
 evalLine (NumberedLine _ statement) env = evalStatement statement env
 evalLine (UnnumberedLine statement) env = evalStatement statement env
 
 
 -- Run an entire program
-parseAndEvalProgram :: [String] -> IO(Either ParseError Environment)
-parseAndEvalProgram program = helper program []
+parseProgram :: [String] -> Either ParseError [BasicLine]
+parseProgram program = helper program []
     where
-        helper :: [String] -> Environment -> IO(Either ParseError Environment)
-        helper [] env = return $ Right env
-        helper (line:rest) env =
-            case (parseAndEvalLine line env) of
-                Right (newEnv, maybeLog) -> case maybeLog of
-                    Just message -> do
-                        putStrLn message
-                        helper rest newEnv
-                    Nothing -> helper rest newEnv
-                Left err -> return $ Left err
+        helper [] acc = Right acc
+        helper (line:rest) acc = case (parse parseLine "" line) of
+            Right line -> helper rest (acc ++ [line])
+            Left err -> Left err
 
 
-parseAndEvalLine :: String -> Environment -> Either ParseError (Environment, Maybe String)
-parseAndEvalLine str env = case (parse parseLine "" str) of
-    Right line -> Right $ evalLine line env
-    Left err -> Left err
+evalProgram :: [BasicLine] -> Environment -> Int -> (String -> IO()) -> IO(Environment)
+evalProgram program env line printer
+    | line > (length program) = return env
+    | otherwise = do
+        let (nextEnv, message, nextLine) = evalLine (program !! line) env in
+            do
+                case message of
+                    Nothing -> return ()
+                    Just message -> printer message
+                case nextLine of
+                    Nothing -> evalProgram program nextEnv (line + 1) printer
+                    Just lineNo -> evalProgram program nextEnv targetLine printer
+                        where
+                            targetLine = 0
 
 
+{-
 main = do
     input <- getContents
-    result <- (parseAndEvalProgram . lines) input
-    case result of
-        Right env -> putStrLn "DONE"
+    case (parseProgram (lines input)) of
         Left err -> print err
+        Right program -> do
+            evalProgram program [] 1 putStrLn
+            return ()
+-}
+
+main = do
+    runWebGUI $ \ webView -> do
+        Just doc <- webViewGetDomDocument webView
+        Just output <- fmap castToHTMLDivElement <$> documentGetElementById doc "output"
+        htmlElementSetInnerText output "Hello"

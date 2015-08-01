@@ -1,4 +1,9 @@
 *.o
 *.hi
 
-basic-parser
+*.js_hi
+*.js_o
+
+*.jsexe
+
+basic-interpreter
