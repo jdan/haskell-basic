@@ -19,6 +19,8 @@ import GHCJS.Types
 -- ENVIRONMENT
 type Environment = [(Char, Int)]
 
+clearEscape = "[[BB"
+
 setEnvironment :: Environment -> Char -> Int -> Environment
 setEnvironment env key value = [(key, value)] ++ env
 
@@ -203,6 +205,7 @@ data Statement = PrintStatement Expression
                | LetStatement Var Expression
                | IfStatement Expression String Expression Statement
                | GotoStatement Expression
+               | ClearStatement
                deriving (Show)
 
 parseStatement :: Parser Statement
@@ -210,7 +213,9 @@ parseStatement =
     parsePrintStatement <|>
     parseLetStatement <|>
     parseIfStatement <|>
-    parseGotoStatement
+    parseGotoStatement <|>
+    parseClearStatement
+
     where
         parsePrintStatement :: Parser Statement
         parsePrintStatement = do
@@ -261,6 +266,11 @@ parseStatement =
             expression <- parseExpression
             return $ GotoStatement expression
 
+        parseClearStatement :: Parser Statement
+        parseClearStatement = do
+            string "CLEAR"
+            return ClearStatement
+
 -- Statements return:
 --   a new environment
 --   maybe a string to output to the console
@@ -292,6 +302,8 @@ evalStatement (IfStatement left relop right statement) env =
 
 evalStatement (GotoStatement expression) env =
     (env, Nothing, Just $ evalExpression expression env)
+
+evalStatement (ClearStatement) env = (env, Just clearEscape, Nothing)
 
 
 -- LINES
@@ -367,10 +379,14 @@ main = do
         let
             -- Append a message to the output <ul>
             appendContent message = do
-                Just entry <- fmap castToHTMLElement <$> documentCreateElement doc "li"
-                htmlElementSetInnerHTML entry (toJSString message)
-                nodeAppendChild output (Just entry)
-                return ()
+                if message == clearEscape
+                    then do
+                        htmlElementSetInnerHTML output (toJSString "")
+                    else do
+                        Just entry <- fmap castToHTMLElement <$> documentCreateElement doc "li"
+                        htmlElementSetInnerHTML entry (toJSString message)
+                        nodeAppendChild output (Just entry)
+                        return ()
 
             runCode = do
                 htmlElementSetInnerHTML output (toJSString "")
