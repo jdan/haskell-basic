@@ -4,6 +4,8 @@
 *.js_hi
 *.js_o
 
-*.jsexe
-
 basic-interpreter
+
+basic-interpreter.jsexe/*.js
+basic-interpreter.jsexe/*.webapp
+basic-interpreter.jsexe/*.stats
