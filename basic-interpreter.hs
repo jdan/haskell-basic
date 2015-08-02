@@ -312,10 +312,11 @@ evalStatement (ClearStatement) env = (env, Just clearEscape, Nothing)
 -- line ::= number statement CR | statement CR
 data BasicLine = NumberedLine BasicNumber Statement
                | UnnumberedLine Statement
+               | EmptyLine
                deriving (Show)
 
 parseLine :: Parser BasicLine
-parseLine = parseNumberedLine <|> parseUnnumberedLine
+parseLine = parseNumberedLine <|> parseUnnumberedLine <|> parseEmptyLine
     where
         parseNumberedLine :: Parser BasicLine
         parseNumberedLine = do
@@ -327,9 +328,15 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine
         parseUnnumberedLine :: Parser BasicLine
         parseUnnumberedLine = UnnumberedLine <$> parseStatement
 
+        parseEmptyLine :: Parser BasicLine
+        parseEmptyLine = do
+            spaces
+            return EmptyLine
+
 evalLine :: BasicLine -> Environment -> (Environment, Maybe String, Maybe Int)
 evalLine (NumberedLine _ statement) env = evalStatement statement env
 evalLine (UnnumberedLine statement) env = evalStatement statement env
+evalLine EmptyLine env = (env, Nothing, Nothing)
 
 
 -- Run an entire program
