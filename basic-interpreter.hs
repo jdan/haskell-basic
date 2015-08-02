@@ -14,7 +14,6 @@ import GHCJS.DOM.Element
 import GHCJS.DOM.HTMLElement
 import GHCJS.DOM.HTMLTextAreaElement
 import GHCJS.DOM.Node
-import GHCJS.DOM.Types
 import GHCJS.Types
 #endif
 
