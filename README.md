@@ -1,4 +1,4 @@
-A TinyBASIC interpreter written in Haskell that works with GHCJS
+A [TinyBASIC](https://en.wikipedia.org/wiki/Tiny_BASIC) interpreter written in Haskell compatible with [GHCJS](https://github.com/ghcjs/ghcjs)
 
 ## console
 
