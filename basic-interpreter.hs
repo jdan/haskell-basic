@@ -18,20 +18,8 @@ import GHCJS.DOM.Types
 import GHCJS.Types
 #endif
 
--- ENVIRONMENT
-type Environment = [(Char, Int)]
-
+-- "Escape" string to clear the screen (read by UI code)
 clearEscape = "[[BB"
-
-setEnvironment :: Environment -> Char -> Int -> Environment
-setEnvironment env key value = [(key, value)] ++ env
-
-getEnvironment :: Environment -> Char -> Int
-getEnvironment env key = case (lookup key env) of
-    Just value -> value
-    -- Variables have a default value of 0
-    Nothing -> 0
-
 
 -- NUMBERS
 data BasicNumber = Number Int deriving (Show)
@@ -65,7 +53,7 @@ parseVar :: Parser Var
 parseVar = Var <$> upper
 
 evalVar :: Var -> Environment -> Int
-evalVar (Var v) env = getEnvironment env v
+evalVar (Var v) env = getVariable env v
 
 
 -- FACTORS
@@ -207,7 +195,9 @@ data Statement = PrintStatement Expression
                | LetStatement Var Expression
                | IfStatement Expression String Expression Statement
                | GotoStatement Expression
+               | GoSubStatement Expression
                | ClearStatement
+               | ReturnStatement
                deriving (Show)
 
 parseStatement :: Parser Statement
@@ -215,7 +205,9 @@ parseStatement =
     parsePrintStatement <|>
     parseLetStatement <|>
     parseIfStatement <|>
-    parseGotoStatement <|>
+    try parseGotoStatement <|>
+    parseGoSubStatement <|>
+    parseReturnStatement <|>
     parseClearStatement
 
     where
@@ -268,28 +260,48 @@ parseStatement =
             expression <- parseExpression
             return $ GotoStatement expression
 
+        parseGoSubStatement :: Parser Statement
+        parseGoSubStatement = do
+            string "GOSUB"
+            spaces
+            expression <- parseExpression
+            return $ GoSubStatement expression
+
         parseClearStatement :: Parser Statement
         parseClearStatement = do
             string "CLEAR"
             return ClearStatement
 
--- Statements return:
---   a new environment
---   maybe a string to output to the console
---   maybe a line to jump to
-evalStatement :: Statement -> Environment -> (Environment, Maybe String, Maybe Int)
+        parseReturnStatement :: Parser Statement
+        parseReturnStatement = do
+            string "RETURN"
+            return ReturnStatement
+
+labelToLine :: Environment -> Int -> Int
+labelToLine env label = newLine
+    where
+        newLine = case (findIndex labelMatches $ getProgram env) of
+            Nothing -> -1
+            Just index -> index
+
+        labelMatches :: BasicLine -> Bool
+        labelMatches line = case line of
+            UnnumberedLine _ -> False
+            EmptyLine -> False
+            NumberedLine (Number num) _ -> (num == label)
+
+evalStatement :: Statement -> Environment -> Environment
 
 evalStatement (PrintStatement expression) env =
-    -- No change to the environment, but send through a string that we will
-    -- print out
-    (env, (Just . show) $ evalExpression expression env, Nothing)
+    setMessage env ((Just . show) $ evalExpression expression env)
+
 evalStatement (LetStatement (Var v) expression) env =
     -- Append a frame to the environment
-    (setEnvironment env v $ evalExpression expression env, Nothing, Nothing)
+    setVariable env v $ evalExpression expression env
 
 evalStatement (IfStatement left relop right statement) env =
     if comparison then evalStatement statement env
-                  else (env, Nothing, Nothing)
+                  else env
     where
         leftResult = evalExpression left env
         rightResult = evalExpression right env
@@ -303,10 +315,32 @@ evalStatement (IfStatement left relop right statement) env =
             "<>" -> leftResult /= rightResult
 
 evalStatement (GotoStatement expression) env =
-    (env, Nothing, Just $ evalExpression expression env)
+    setCurrentLine env newLine
+    where
+        newLine = labelToLine env label
+        label = evalExpression expression env
 
-evalStatement (ClearStatement) env = (env, Just clearEscape, Nothing)
+evalStatement (GoSubStatement expression) env =
+    setCurrentLine newEnv newLine
+    where
+        -- Push the next line to the stack
+        -- NOTE: We increment the current line prematurely before evaluating
+        -- this statment
+        newEnv = pushStack env $ getCurrentLine env
 
+        -- Fetch the label we will be jumping to
+        label = evalExpression expression newEnv
+
+        -- Convert the label to a tangible line number
+        newLine = labelToLine newEnv label
+
+
+evalStatement (ClearStatement) env = setMessage env $ Just clearEscape
+
+evalStatement (ReturnStatement) env =
+    setCurrentLine newEnv line
+    where
+        (line, newEnv) = popStack env
 
 -- LINES
 -- line ::= number statement CR | statement CR
@@ -333,10 +367,67 @@ parseLine = parseNumberedLine <|> parseUnnumberedLine <|> parseEmptyLine
             spaces
             return EmptyLine
 
-evalLine :: BasicLine -> Environment -> (Environment, Maybe String, Maybe Int)
+evalLine :: BasicLine -> Environment -> Environment
 evalLine (NumberedLine _ statement) env = evalStatement statement env
 evalLine (UnnumberedLine statement) env = evalStatement statement env
-evalLine EmptyLine env = (env, Nothing, Nothing)
+evalLine EmptyLine env = env
+
+
+-- ENVIRONMENT
+type Environment = (
+    -- The program code
+    [BasicLine],
+
+    -- The list of variable declarations
+    [(Char, Int)],
+
+    -- The stack
+    [Int],
+
+    -- The current line
+    Int,
+
+    -- A message to print
+    Maybe String)
+
+initialEnvironment :: [BasicLine] -> Environment
+initialEnvironment program = (program, [], [(-1)], 0, Nothing)
+
+getVariable :: Environment -> Char -> Int
+getVariable (program, store, stack, line, message) key = case (lookup key store) of
+    Just value -> value
+    -- Variables have a default value of 0
+    Nothing -> 0
+
+setVariable :: Environment -> Char -> Int -> Environment
+setVariable (program, store, stack, line, message) key value =
+    (program, [(key, value)] ++ store, stack, line, message)
+
+pushStack :: Environment -> Int -> Environment
+pushStack (program, store, stack, line, message) item =
+    (program, store, item:stack, line, message)
+
+popStack :: Environment -> (Int, Environment)
+popStack (_, _, [], _, _) = error "Popping empty stack"
+popStack (program, store, first:rest, line, message) =
+    (first, (program, store, rest, line, message))
+
+getCurrentLine :: Environment -> Int
+getCurrentLine (_, _, _, line, _) = line
+
+setCurrentLine :: Environment -> Int -> Environment
+setCurrentLine (program, store, stack, line, message) newLine =
+    (program, store, stack, newLine, message)
+
+getMessage :: Environment -> Maybe String
+getMessage (_, _, _, _, message) = message
+
+setMessage :: Environment -> Maybe String -> Environment
+setMessage (program, store, stack, line, message) newMessage =
+    (program, store, stack, line, newMessage)
+
+getProgram :: Environment -> [BasicLine]
+getProgram (program, _, _, _, _) = program
 
 
 -- Run an entire program
@@ -348,34 +439,25 @@ parseProgram program = helper program []
             Right line -> helper rest (acc ++ [line])
             Left err -> Left err
 
+evalProgram :: Environment -> (String -> IO()) -> IO(Environment)
+evalProgram env printer = do
+    -- Shall we print something?
+    case (getMessage env) of
+        Nothing -> return ()
+        Just message -> printer message
 
-evalProgram :: [BasicLine] -> Environment -> Int -> (String -> IO()) -> IO(Environment)
-evalProgram program env line printer
-    | line < 0 = return env
-    | line >= (length program) = return env
-    | otherwise = do
-        let (nextEnv, message, nextLine) = evalLine (program !! line) env in
-            do
-                -- Shall we print something?
-                case message of
-                    Nothing -> return ()
-                    Just message -> printer message
+    if (getCurrentLine env) < 0
+        then return env
+        else
+            return evalProgram program newEnv printer
+                where
+                    newEnv = evalLine (program !! line) nextEnv
 
-                -- Does the command want us to jump?
-                case nextLine of
-                    -- If not, visit the next line in the program
-                    Nothing -> evalProgram program nextEnv (line+1) printer
+                    -- Clear out the current message and increase the line by 1
+                    nextEnv = setMessage (setCurrentLine env $ (+1) line) Nothing
+                    line = getCurrentLine env
+                    program = getProgram env
 
-                    -- Find the line corresponding to the label
-                    Just lineNo -> evalProgram program nextEnv targetLine printer
-                        where
-                            targetLine = case (findIndex labelMatches program) of
-                                Nothing -> -1
-                                Just index -> index
-
-                            labelMatches line = case line of
-                                UnnumberedLine _ -> False
-                                NumberedLine (Number num) _ -> (num == lineNo)
 
 #ifdef __GHCJS__
 main = do
@@ -410,7 +492,7 @@ main = do
                         htmlElementSetInnerHTML output (show err)
                         return ()
                     Right program -> do
-                        evalProgram program [] 0 appendContent
+                        evalProgram (initialEnvironment program) appendContent
                         return ()
 
         elementOnclick run (liftIO runCode)
@@ -421,7 +503,7 @@ main = do
     eitherAst <- (return . parseProgram . lines) input
     case eitherAst of
         Right ast -> do
-            evalProgram ast [] 0 putStrLn
+            evalProgram (initialEnvironment ast) putStrLn
             return ()
         Left err -> print err
 #endif
