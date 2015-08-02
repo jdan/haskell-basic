@@ -6,6 +6,7 @@ import Data.List
 
 import Text.ParserCombinators.Parsec
 
+#ifdef __GHCJS__
 import GHCJS.Foreign
 import GHCJS.DOM
 import GHCJS.DOM.Document
@@ -15,6 +16,7 @@ import GHCJS.DOM.HTMLTextAreaElement
 import GHCJS.DOM.Node
 import GHCJS.DOM.Types
 import GHCJS.Types
+#endif
 
 -- ENVIRONMENT
 type Environment = [(Char, Int)]
@@ -368,6 +370,7 @@ evalProgram program env line printer
                                 UnnumberedLine _ -> False
                                 NumberedLine (Number num) _ -> (num == lineNo)
 
+#ifdef __GHCJS__
 main = do
     -- Running a GUI creates a WebKitGtk window in native code,
     -- but just returns the browser window when compiled to JavaScript
@@ -405,3 +408,13 @@ main = do
 
         elementOnclick run (liftIO runCode)
         return ()
+#else
+main = do
+    input <- getContents
+    eitherAst <- (return . parseProgram . lines) input
+    case eitherAst of
+        Right ast -> do
+            evalProgram ast [] 0 putStrLn
+            return ()
+        Left err -> print err
+#endif
